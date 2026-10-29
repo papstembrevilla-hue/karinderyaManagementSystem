@@ -8,6 +8,7 @@ interface Flash {
 
 interface PageProps {
     flash?: Flash;
+    [key: string]: unknown;
 }
 
 export default function FlashMessage() {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\CartItem;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -37,20 +38,27 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
+        $user = $request->user();
 
         return array_merge(parent::share($request), [
-            ...parent::share($request),
             'name' => config('app.name'),
+            'brand' => config('karinderya.name'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
             ],
-             'flash' => [
-                'success' => fn () =>
-                    $request->session()->get('success'),
-
-                'error' => fn () =>
-                    $request->session()->get('error'),
+            'cartCount' => $user && $user->role === 'user'
+                ? (int) CartItem::query()->where('user_id', $user->id)->sum('quantity')
+                : 0,
+            'portal' => [
+                'delivery_fee' => (float) config('karinderya.delivery_fee', 0),
+                'payment_methods' => config('karinderya.payment_methods', []),
+                'fulfillment_methods' => config('karinderya.fulfillment_methods', []),
+            ],
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+                'error' => fn () => $request->session()->get('error'),
+                'order_placed' => fn () => $request->session()->get('order_placed'),
             ],
         ]);
     }

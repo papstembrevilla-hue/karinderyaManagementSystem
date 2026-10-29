@@ -56,6 +56,15 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    --color-cream: #fff9f2;
+    --color-paper: #ffffff;
+    --color-ink: #2b1b12;
+    --color-warm-muted: #7a6353;
+    --color-warm-line: #eadfd3;
+    --color-warm-soft: #f6ede3;
+    --color-brand: #c2410c;
+    --color-brand-dark: #9a3412;
 }
 /* Add this to your resources/css/app.css, inside the @layer components block
    (or create one if you don't have it yet). Requires Tailwind. */

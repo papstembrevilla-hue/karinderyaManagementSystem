@@ -7,16 +7,37 @@ use App\Models\Ingredient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use Inertia\Response;
 
 class IngredientController extends Controller
 {
     /**
      * Display all ingredients.
      */
-    public function index()
+    public function index(Request $request): Response
     {
+        $search = trim((string) $request->input('search', ''));
+        $status = trim((string) $request->input('status', ''));
+
+        $ingredients = Ingredient::query()
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($query) use ($search) {
+                    $query
+                        ->where('ingredient_name', 'like', "%{$search}%")
+                        ->orWhere('category', 'like', "%{$search}%");
+                });
+            })
+            ->when($status !== '', fn ($query) => $query->where('status', $status))
+            ->latest()
+            ->paginate(10)
+            ->withQueryString();
+
         return Inertia::render('Admin/Ingredients/Index', [
-            'ingredients' => Ingredient::latest()->get(),
+            'ingredients' => $ingredients,
+            'filters' => [
+                'search' => $search,
+                'status' => $status,
+            ],
         ]);
     }
 
@@ -109,91 +130,106 @@ class IngredientController extends Controller
      * Update ingredient.
      */
     public function update(Request $request, Ingredient $ingredient)
-{
-    $validated = $request->validate([
-        'ingredient_name' => 'required|string|max:255',
-        'category' => 'nullable|string|max:255',
+    {
+        $validated = $request->validate([
+            'ingredient_name' => 'required|string|max:255',
+            'category' => 'nullable|string|max:255',
 
-        'photo' => [
-            'nullable',
-            'image',
-            'mimes:jpg,jpeg,png,webp',
-            'max:2048',
-        ],
+            'photo' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:2048',
+            ],
 
-        'unit' => 'required|string|max:50',
-        'quantity' => 'required|numeric|min:0',
-        'reorder_level' => 'required|numeric|min:0',
-        'unit_cost' => 'required|numeric|min:0',
+            'unit' => 'required|string|max:50',
+            'quantity' => 'required|numeric|min:0',
+            'reorder_level' => 'required|numeric|min:0',
+            'unit_cost' => 'required|numeric|min:0',
 
-        'expiration_date' => 'nullable|date',
-        'description' => 'nullable|string',
-    ]);
+            'expiration_date' => 'nullable|date',
+            'description' => 'nullable|string',
+        ]);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update Photo
-    |--------------------------------------------------------------------------
-    */
+        /*
+        |--------------------------------------------------------------------------
+        | Update Photo
+        |--------------------------------------------------------------------------
+        */
 
-    if ($request->hasFile('photo')) {
+        if ($request->hasFile('photo')) {
 
-        // Delete old photo
-        if ($ingredient->photo) {
-            Storage::disk('public')->delete(
-                $ingredient->photo
-            );
+            // Delete old photo
+            if ($ingredient->photo) {
+                Storage::disk('public')->delete(
+                    $ingredient->photo
+                );
+            }
+
+            // Store new photo
+            $validated['photo'] = $request
+                ->file('photo')
+                ->store('ingredients', 'public');
         }
 
-        // Store new photo
-        $validated['photo'] = $request
-            ->file('photo')
-            ->store('ingredients', 'public');
+        /*
+        |--------------------------------------------------------------------------
+        | Update Status
+        |--------------------------------------------------------------------------
+        */
+
+        if ($validated['quantity'] <= 0) {
+            $validated['status'] = 'Out of Stock';
+        } elseif (
+            $validated['quantity'] <= $validated['reorder_level']
+        ) {
+            $validated['status'] = 'Low Stock';
+        } else {
+            $validated['status'] = 'In Stock';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update Database
+        |--------------------------------------------------------------------------
+        */
+
+        $ingredient->update($validated);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Flash Message
+        |--------------------------------------------------------------------------
+        */
+
+        return redirect()
+            ->route('admin.ingredients.index')
+            ->with(
+                'success',
+                'Ingredient updated successfully!'
+            );
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update Status
-    |--------------------------------------------------------------------------
-    */
-
-    if ($validated['quantity'] <= 0) {
-        $validated['status'] = 'Out of Stock';
-    } elseif (
-        $validated['quantity'] <= $validated['reorder_level']
-    ) {
-        $validated['status'] = 'Low Stock';
-    } else {
-        $validated['status'] = 'In Stock';
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update Database
-    |--------------------------------------------------------------------------
-    */
-
-    $ingredient->update($validated);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Flash Message
-    |--------------------------------------------------------------------------
-    */
-
-    return redirect()
-        ->route('admin.ingredients.index')
-        ->with(
-            'success',
-            'Ingredient updated successfully!'
-        );
-}
 
     /**
      * Delete ingredient.
      */
     public function destroy(Ingredient $ingredient)
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Protect Historical Stock Movements
+        |--------------------------------------------------------------------------
+        */
+
+        if ($ingredient->stockIns()->exists() || $ingredient->stockOuts()->exists()) {
+            return redirect()
+                ->route('admin.ingredients.index')
+                ->with(
+                    'error',
+                    'This ingredient has stock movement history and cannot be deleted.'
+                );
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Delete Photo
